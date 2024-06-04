@@ -1,0 +1,447 @@
+---
+title: "Enrollment by School, Grade: 2018-19 to 2021-22"
+format:
+  html:
+    code-fold: true
+    code-summary: "Show code"
+toc: true
+execute:
+  message: false
+  warning: false
+---
+
+## Deliverable 1: Excel file
+
+Will be sent as a file attachment.
+
+## Deliverable 2: Code to generate work products
+
+### Import
+
+Load required packages.
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(janitor)
+```
+
+Download files and save with standardized names in project directory.
+
+```{r}
+url_prefix <- paste0(
+  "https://osse.dc.gov/",
+  "sites/default/files/dc/sites/osse/page_content/attachments/"
+)
+
+download.file(
+  paste0(
+    url_prefix,
+    "2018-19%20School%20Year%20Annual%20Enrollment%20Audit%20Report%20Supplemental%20Tables.xlsx"
+  ),
+  destfile = "enrollment_2019.xlsx", mode = "wb", quiet = TRUE
+)
+
+download.file(
+  paste0(
+    url_prefix,
+    "SY21-22%20Annual%20Enrollment%20Audit%20Supplemental%20Tables_02082022.xlsx"
+  ),
+  destfile = "enrollment_2022.xlsx", mode = "wb", quiet = TRUE
+)
+```
+
+Read in downloaded files and standardize column names.
+
+Initially read all columns as text to avoid guessing about column types.
+Explicit type conversions will be applied later.
+
+```{r}
+enrollment_2019_raw <-
+  read_excel(
+    "enrollment_2019.xlsx",
+    sheet = "School Audited Enr by Grade",
+    range = "A1:V487",
+    col_types = "text"
+  ) |>
+  clean_names()
+
+enrollment_2022_raw <-
+  read_excel(
+    "enrollment_2022.xlsx",
+    sheet = "School Audited Enr by Grade",
+    range = "A1:F2334",
+    col_types = "text"
+  ) |>
+  clean_names()
+```
+
+### Tidying and Transformation
+
+Specify vector of clean grade levels for standardizing across years.
+
+```{r}
+levels_grade <- c(
+  "total",
+  "pk3", "pk4",
+  "kg", "1", "2", "3", "4", "5", "6", "7", "8",
+  "9", "10", "11", "12",
+  "adult", "ungraded"
+)
+
+grades_high <- c("9", "10", "11", "12")
+```
+
+Clean up 2019 table and add identifier for year.
+
+Observe that the 2019 file presents the data in a denormalized or "wide" format,
+such that each grade is a separate column, while the 2022 file presents the data
+in a normalized or "long" format, such that grade is a variable in a single
+column.
+
+Pivot 2019 table into long format to allow for tidy data operations.
+
+Standardize grade variable.
+
+```{r}
+enrollment_2019 <-
+  enrollment_2019_raw |>
+  pivot_longer(
+    cols = audited_enrollment:ungraded,
+    names_to = "grade",
+    values_to = "n_enrolled"
+  ) |>
+  mutate(across(grade, \(x) str_to_lower(x))) |>
+  mutate(across(grade, \(x) str_remove(x, "^x0"))) |>
+  mutate(across(grade, \(x) str_remove(x, "^x"))) |>
+  mutate(across(grade, \(x) str_squish(x))) |>
+  mutate(grade = if_else(grade == "audited_enrollment", "total", grade)) |>
+  mutate(grade = factor(grade, levels = levels_grade)) |>
+  mutate(year = 2019, .before = 0)
+```
+
+Clean up 2022 table and add identifier for year.
+
+Standardize grade variable.
+
+```{r}
+enrollment_2022 <-
+  enrollment_2022_raw |>
+  rename(n_enrolled = enrolled) |>
+  mutate(across(grade, \(x) str_to_lower(x))) |>
+  mutate(across(grade, \(x) str_remove(x, "grade "))) |>
+  mutate(across(grade, \(x) str_remove(x, " enrolled"))) |>
+  mutate(across(grade, \(x) str_squish(x))) |>
+  mutate(grade = factor(grade, levels = levels_grade)) |>
+  mutate(year = 2022, .before = 0)
+```
+
+Stack 1-year tables into single multi-year table for tidy data operations.
+
+Clean up LEA codes.
+
+Filter for DCPS and relevant grades.
+
+```{r}
+enrollment <-
+  bind_rows(enrollment_2019, enrollment_2022) |>
+  mutate(across(n_enrolled, as.numeric)) |>
+  mutate(
+    across(lea_code, \(x) str_pad(x, width = 3, side = "left", pad = "0"))
+  ) |>
+  filter(lea_code == "001", grade %in% grades_high) |>
+  arrange(year, school_name, grade)
+```
+
+Validate grades.
+
+```{r}
+enrollment |> count(year, grade)
+```
+
+Observe that no students were classified as ungraded in the 2022 data.
+
+Check for school codes and names that are inconsistent across the two years.
+
+```{r}
+enrollment |>
+  distinct(school_code, school_name) |>
+  count(school_name, sort = TRUE) |>
+  filter(n > 1)
+
+name_changed <-
+  enrollment |>
+  distinct(school_code, school_name) |>
+  count(school_code, sort = TRUE) |>
+  filter(n > 1) |>
+  left_join(enrollment, by = join_by(school_code)) |>
+  distinct(school_code, school_name, year) |>
+  arrange(school_code, school_name, year)
+
+name_changed
+
+name_changed_lookup <-
+  name_changed |>
+  filter(year == 2022) |>
+  select(school_code, school_name_recent = school_name)
+```
+
+No schools kept the same name while changing school codes, but a few schools
+changed names while keeping the same school code. Use the more recent name for
+convenience.
+
+Create rows for DCPS overall by grade and bind back to table for helpful
+reference during exploratory analysis.
+
+```{r}
+dc_overall <-
+  enrollment |>
+  group_by(lea_code, lea_name, year, grade) |>
+  summarize(n_enrolled = sum(n_enrolled)) |>
+  mutate(school_code = lea_code, school_name = lea_name)
+
+enrollment_clean <-
+  enrollment |>
+  left_join(name_changed_lookup, by = join_by(school_code)) |>
+  mutate(
+    school_name = if_else(
+      !is.na(school_name_recent), school_name_recent, school_name
+    ),
+    school_name = str_remove(school_name, "High School$|Campus$")
+  ) |>
+  select(!school_name_recent) |>
+  bind_rows(dc_overall)
+```
+
+Verify inconsistent names have been fixed.
+
+```{r}
+enrollment_clean |>
+  distinct(school_code, school_name) |>
+  count(school_code, sort = TRUE) |>
+  filter(n > 1)
+```
+
+Pivot just the enrollment count columns back out to wide format so each
+school-grade pair can be displayed on a single row.
+
+In calculations for change over time, school-grades that either started from a
+zero baseline or dropped down to zero students will be excluded, as well as
+school-grades that did not have at least 10 students in either year. In these
+situations, the rate of change may not be meaningful because it will
+often be infinite, bounded at negative 100 percent, or related to an alternative
+school arrangement.
+
+```{r}
+values_exclude <- c(-1.0, Inf)
+```
+
+Create rows for DCPS median by grade, which will provide the context needed to 
+answer the request. In other words, is the median across schools consistent with
+the overall change for that grade, or do they diverge?
+
+```{r}
+enrollment_yoy <-
+  enrollment_clean |>
+  pivot_wider(
+    names_from = year, values_from = n_enrolled, names_prefix = "n_enrolled_"
+  ) |>
+  mutate(across(starts_with("n_enrolled"), \(x) replace_na(x, 0))) |>
+  mutate(
+    n_enrolled_change = n_enrolled_2022 - n_enrolled_2019,
+    rate_enrolled_change = round(n_enrolled_change / n_enrolled_2019, 3)
+  ) |>
+  mutate(
+    school_name = if_else(school_code == "001", "Overall", school_name)
+  ) |>
+  filter(!(rate_enrolled_change %in% values_exclude)) |>
+  filter(n_enrolled_2019 >= 10 | n_enrolled_2022 >= 10) |>
+  select(!c(lea_code, lea_name))
+
+dc_summary <-
+  enrollment_yoy |>
+  filter(school_code != "001") |>
+  group_by(grade) |>
+  summarize(
+    rate_enrolled_change = round(median(rate_enrolled_change), 3)
+  ) |>
+  mutate(school_name = "Median")
+
+enrollment_yoy <-
+  enrollment_yoy |>
+  bind_rows(dc_summary) |>
+  mutate(
+    color_fill = if_else(
+      school_name %in% c("Overall", "Median"), "black", "darkgray"
+    )
+  )
+
+enrollment_yoy |>
+  mutate(school_name = fct_relevel(school_name, c("Overall", "Median"))) |>
+  arrange(school_name, grade) |>
+  select(!color_fill) |>
+  write_excel_csv("Deliverable 1.csv", na = "")
+```
+
+### Exploratory Analysis
+
+#### Overall by Grade
+
+```{r}
+enrollment_yoy |>
+  filter(str_detect(school_name, "Overall|Median")) |>
+  ggplot(
+    aes(
+      x = fct_rev(school_name),
+      y = rate_enrolled_change,
+    )
+  ) +
+  geom_col() +
+  geom_label(aes(label = rate_enrolled_change)) +
+  facet_wrap(vars(grade), ncol = 4)
+```
+
+```{r}
+enrollment_yoy |>
+  filter(!str_detect(school_name, "Overall|Median")) |>
+  ggplot(aes(x = grade, y = n_enrolled_change)) +
+  geom_boxplot()
+```
+
+#### Individual Schools
+
+```{r}
+enrollment_yoy |>
+  filter(grade == "9") |>
+  ggplot(
+    aes(
+      x = rate_enrolled_change,
+      y = fct_reorder(school_name, rate_enrolled_change),
+      label = n_enrolled_change
+    )
+  ) +
+  geom_col(aes(fill = color_fill)) +
+  geom_label() +
+  scale_fill_identity() +
+  ggtitle("9th")
+```
+
+```{r}
+enrollment_yoy |>
+  filter(grade == "10") |>
+  ggplot(
+    aes(
+      x = rate_enrolled_change,
+      y = fct_reorder(school_name, rate_enrolled_change),
+      label = n_enrolled_change
+    )
+  ) +
+  geom_col(aes(fill = color_fill)) +
+  geom_label() +
+  scale_fill_identity() +
+  ggtitle("10th")
+```
+
+```{r}
+enrollment_yoy |>
+  filter(grade == "11") |>
+  ggplot(
+    aes(
+      x = rate_enrolled_change,
+      y = fct_reorder(school_name, rate_enrolled_change),
+      label = n_enrolled_change
+    )
+  ) +
+  geom_col(aes(fill = color_fill)) +
+  geom_label() +
+  scale_fill_identity() +
+  ggtitle("11th")
+```
+
+```{r}
+enrollment_yoy |>
+  filter(grade == "12") |>
+  ggplot(
+    aes(
+      x = rate_enrolled_change,
+      y = fct_reorder(school_name, rate_enrolled_change),
+      label = n_enrolled_change
+    )
+  ) +
+  geom_col(aes(fill = color_fill)) +
+  geom_label() +
+  scale_fill_identity() +
+  ggtitle("12th")
+```
+
+```{r}
+counts_increasing <-
+  enrollment_yoy |>
+  group_by(grade) |>
+  summarize(
+    n_schools = n(),
+    n_increase = sum(n_enrolled_change > 0, na.rm = TRUE),
+    perc_increase = round(n_increase / n_schools, 3) * 100
+  ) |>
+  filter(grade %in% grades_high)
+```
+
+## Deliverable 3: Email
+
+Dear Mr. Brown:
+
+Thanks so much for digging into those high school enrollment numbers, especially
+with many large districts around the country grappling with declining 
+enrollment.
+
+I've attached the full supporting data by school and grade, but please find
+below a summary table that should help to answer the question of whether the
+overall change by grade was evenly distributed across schools.
+
+```{r}
+#| echo: false
+
+enrollment_yoy |>
+  filter(str_detect(school_name, "Overall|Median")) |>
+  select(school_name, grade, n_enrolled_change, rate_enrolled_change) |>
+  arrange(grade) |>
+  fill(n_enrolled_change) |>
+  pivot_wider(
+    id_cols = c(grade, n_enrolled_change),
+    names_from = school_name,
+    values_from = rate_enrolled_change
+  ) |>
+  mutate(across(c(Overall, Median), \(x) x * 100)) |>
+  left_join(counts_increasing, by = join_by(grade)) |>
+  knitr::kable(col.names = c(
+    "Grade", "Change # Students", "% Change Overall", "% Change Median",
+    "# Schools", "# Increasing", "% Increasing"
+  ))
+```
+
+Like you said, 9th grade saw an increase of 1,091 students (33 percent) overall 
+during this period, and the median increase across schools with at least 10 
+students enrolled in either year was 25 percent. 10th grade had an increase of 
+268 students (10 percent), with a median increase by school of 3 percent. 16 of 
+23 schools added students in 9th grade, and 12 of 22 schools added students in 
+10th grade.
+
+With 11th grade on the other hand, the small net increase of 73 students (3
+percent overall) was driven primarily by adding 105 students at Coolidge. The 
+median change across schools was actually a decrease of around -5 percent, and
+only 9 of 21 schools added students.
+
+12th grade showed a broad-based decline of 175 students overall (-7.1 percent),
+which follows a median decline of -11 percent across schools, 15 of 20 of which
+lost students over this period.
+
+As far as figuring out how many of these students are reported in the same grade
+in both periods, I don't have that data readily available, but I've started
+working on a query to pull that information from our system.
+
+Please let me know if you need anything else on these enrollment figures, and 
+I'll be happy to assist.
+
+--Steven
+
+## Deliverable 4: Students in same grade
