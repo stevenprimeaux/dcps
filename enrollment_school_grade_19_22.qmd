@@ -16,6 +16,10 @@ Will be sent as a file attachment.
 
 ## Deliverable 2: Code to generate work products
 
+Click "Show code" to see underlying calculations.
+
+Repository available at: https://github.com/stevenprimeaux/dcps.
+
 ### Import
 
 Load required packages.
@@ -23,6 +27,7 @@ Load required packages.
 ```{r}
 library(tidyverse)
 library(readxl)
+library(writexl)
 library(janitor)
 ```
 
@@ -53,7 +58,7 @@ download.file(
 
 Read in downloaded files and standardize column names.
 
-Initially read all columns as text to avoid guessing about column types.
+Initially read all columns as text to avoid guessing column types.
 Explicit type conversions will be applied later.
 
 ```{r}
@@ -94,7 +99,7 @@ grades_high <- c("9", "10", "11", "12")
 
 Clean up 2019 table and add identifier for year.
 
-Observe that the 2019 file presents the data in a denormalized or "wide" format,
+Observe that 2019 file presents the data in a denormalized or "wide" format,
 such that each grade is a separate column, while the 2022 file presents the data
 in a normalized or "long" format, such that grade is a variable in a single
 column.
@@ -114,7 +119,7 @@ enrollment_2019 <-
   mutate(across(grade, \(x) str_to_lower(x))) |>
   mutate(across(grade, \(x) str_remove(x, "^x0"))) |>
   mutate(across(grade, \(x) str_remove(x, "^x"))) |>
-  mutate(across(grade, \(x) str_squish(x))) |>
+  mutate(across(grade, \(x) str_trim(x))) |>
   mutate(grade = if_else(grade == "audited_enrollment", "total", grade)) |>
   mutate(grade = factor(grade, levels = levels_grade)) |>
   mutate(year = 2019, .before = 0)
@@ -131,7 +136,7 @@ enrollment_2022 <-
   mutate(across(grade, \(x) str_to_lower(x))) |>
   mutate(across(grade, \(x) str_remove(x, "grade "))) |>
   mutate(across(grade, \(x) str_remove(x, " enrolled"))) |>
-  mutate(across(grade, \(x) str_squish(x))) |>
+  mutate(across(grade, \(x) str_trim(x))) |>
   mutate(grade = factor(grade, levels = levels_grade)) |>
   mutate(year = 2022, .before = 0)
 ```
@@ -193,6 +198,8 @@ convenience.
 Create rows for DCPS overall by grade and bind back to table for helpful
 reference during exploratory analysis.
 
+Shorten school names for better plotting.
+
 ```{r}
 dc_overall <-
   enrollment |>
@@ -222,12 +229,12 @@ enrollment_clean |>
   filter(n > 1)
 ```
 
-Pivot just the enrollment count columns back out to wide format so each
-school-grade pair can be displayed on a single row.
+Pivot enrollment count columns back out to wide format so each
+school-grade pair can be displayed with both years on a single row.
 
 In calculations for change over time, school-grades that either started from a
 zero baseline or dropped down to zero students will be excluded, as well as
-school-grades that did not have at least 10 students in either year. In these
+school-grades that did not have at least 10 students in both years. In these
 situations, the rate of change may not be meaningful because it will
 often be infinite, bounded at negative 100 percent, or related to an alternative
 school arrangement.
@@ -254,8 +261,8 @@ enrollment_yoy <-
   mutate(
     school_name = if_else(school_code == "001", "Overall", school_name)
   ) |>
+  filter(n_enrolled_2019 >= 10 & n_enrolled_2022 >= 10) |>
   filter(!(rate_enrolled_change %in% values_exclude)) |>
-  filter(n_enrolled_2019 >= 10 | n_enrolled_2022 >= 10) |>
   select(!c(lea_code, lea_name))
 
 dc_summary <-
@@ -275,13 +282,21 @@ enrollment_yoy <-
       school_name %in% c("Overall", "Median"), "black", "darkgray"
     )
   )
-
-enrollment_yoy |>
-  mutate(school_name = fct_relevel(school_name, c("Overall", "Median"))) |>
-  arrange(school_name, grade) |>
-  select(!color_fill) |>
-  write_excel_csv("Deliverable 1.csv", na = "")
 ```
+
+```{r}
+yoy <-
+  enrollment_yoy |>
+  mutate(school_name = fct_relevel(school_name, c("Overall", "Median"))) |>
+  select(!color_fill) |>
+  arrange(school_name, grade)
+
+write_xlsx(
+  list("Enrollment YOY" = yoy, "Enrollment Long" = enrollment_clean),
+  path = "Deliverable 1.xlsx"
+)
+```
+
 
 ### Exploratory Analysis
 
@@ -382,8 +397,7 @@ counts_increasing <-
     n_schools = n(),
     n_increase = sum(n_enrolled_change > 0, na.rm = TRUE),
     perc_increase = round(n_increase / n_schools, 3) * 100
-  ) |>
-  filter(grade %in% grades_high)
+  )
 ```
 
 ## Deliverable 3: Email
@@ -414,33 +428,36 @@ enrollment_yoy |>
   mutate(across(c(Overall, Median), \(x) x * 100)) |>
   left_join(counts_increasing, by = join_by(grade)) |>
   knitr::kable(col.names = c(
-    "Grade", "Change # Students", "% Change Overall", "% Change Median",
+    "Grade",
+    "Change # Students", "% Change Overall", "Median % Change",
     "# Schools", "# Increasing", "% Increasing"
   ))
 ```
 
-Like you said, 9th grade saw an increase of 1,091 students (33 percent) overall 
-during this period, and the median increase across schools with at least 10 
-students enrolled in either year was 25 percent. 10th grade had an increase of 
-268 students (10 percent), with a median increase by school of 3 percent. 16 of 
-23 schools added students in 9th grade, and 12 of 22 schools added students in 
-10th grade.
+Like you said, 9th grade saw a net increase of 1,091 students overall 
+(33 percent) during this period, and the median increase across schools with at 
+least 10 students enrolled in both years was 35 percent. 10th grade had an 
+increase of 268 students (10 percent), with a median increase by school of 6 
+percent. 16 schools added students in 9th grade, and 12 schools added students 
+in 10th grade.
 
-With 11th grade on the other hand, the small net increase of 73 students (3
-percent overall) was driven primarily by adding 105 students at Coolidge. The 
+With 11th grade on the other hand, the small net increase of 73 students overall
+(3 percent) was driven primarily by adding 105 students at Coolidge. The 
 median change across schools was actually a decrease of around -5 percent, and
-only 9 of 21 schools added students.
+only 9 schools added students.
 
-12th grade showed a broad-based decline of 175 students overall (-7.1 percent),
-which follows a median decline of -11 percent across schools, 15 of 20 of which
-lost students over this period.
+12th grade showed a broad-based decline of -175 students overall (-7 percent),
+which follows a median decline of -11 percent across schools, where 15 of 20 
+lost students over this period. Note that Ron Brown College Prep was excluded 
+for 12th grade because they were building out from zero to 52 students over this
+period.
 
 As far as figuring out how many of these students are reported in the same grade
 in both periods, I don't have that data readily available, but I've started
 working on a query to pull that information from our system.
 
 Please let me know if you need anything else on these enrollment figures, and 
-I'll be happy to assist.
+I'll be happy to assist!
 
 --Steven
 
