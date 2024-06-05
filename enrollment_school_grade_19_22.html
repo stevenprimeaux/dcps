@@ -586,8 +586,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">n_schools =</span> <span class="fu">n</span>(),</span>
 <span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">n_increase =</span> <span class="fu">sum</span>(n_enrolled_change <span class="sc">&gt;</span> <span class="dv">0</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
 <span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">perc_increase =</span> <span class="fu">round</span>(n_increase <span class="sc">/</span> n_schools, <span class="dv">3</span>) <span class="sc">*</span> <span class="dv">100</span></span>
-<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(grade <span class="sc">%in%</span> grades_high)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>  )</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
 </section>
@@ -662,15 +661,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </table>
 </div>
 </div>
-<p>Like you said, 9th grade saw an increase of 1,091 students overall (33 percent) during this period, and the median increase across schools with at least 10 students enrolled in both years was 25 percent. 10th grade had an increase of 268 students (10 percent), with a median increase by school of 3 percent. 16 of 23 schools added students in 9th grade, and 12 of 22 schools added students in 10th grade.</p>
-<p>With 11th grade on the other hand, the small net increase of 73 students overall (3 percent) was driven primarily by adding 105 students at Coolidge. The median change across schools was actually a decrease of around -5 percent, and only 9 of 21 schools added students.</p>
-<p>12th grade showed a broad-based decline of 175 students overall (-7 percent), which follows a median decline of -11 percent across schools, where 15 of 20 lost students over this period.</p>
+<p>Like you said, 9th grade saw a net increase of 1,091 students overall (33 percent) during this period, and the median increase across schools with at least 10 students enrolled in both years was 35 percent. 10th grade had an increase of 268 students (10 percent), with a median increase by school of 6 percent. 16 schools added students in 9th grade, and 12 schools added students in 10th grade.</p>
+<p>With 11th grade on the other hand, the small net increase of 73 students overall (3 percent) was driven primarily by adding 105 students at Coolidge. The median change across schools was actually a decrease of around -5 percent, and only 9 schools added students.</p>
+<p>12th grade showed a broad-based decline of -175 students overall (-7 percent), which follows a median decline of -11 percent across schools, where 15 of 20 lost students over this period. Note that Ron Brown College Prep was excluded for 12th grade because they were building out from zero to 52 students over this period.</p>
 <p>As far as figuring out how many of these students are reported in the same grade in both periods, I don’t have that data readily available, but I’ve started working on a query to pull that information from our system.</p>
 <p>Please let me know if you need anything else on these enrollment figures, and I’ll be happy to assist!</p>
 <p>–Steven</p>
 </section>
 <section id="deliverable-4-students-in-same-grade" class="level2">
 <h2 class="anchored" data-anchor-id="deliverable-4-students-in-same-grade">Deliverable 4: Students in same grade</h2>
+<p>This calculation is actually something that I’ve built at NOLA Public Schools, so the basic rules are very familiar. The pseudocode looks something like this:</p>
+<p>Let annual_enrollment_detail be a database table of year-student-school-grade tuples. Let years be an array of years from 2018 to 2021.</p>
+<p>For year in years:</p>
+<p>Let tbl_year1 = annual_enrollment_detail filtered for audit_year == year (2018 for example). Let tbl_year2 = annual_enrollment_detail filtered for audit_year == year + 1 (2019 for example).</p>
+<p>Left join tbl_year2 back onto tbl_year1 using student_id, school_code, and grade_level. (If you don’t care whether they changed schools, use student and grade only.)</p>
+<p>The records in tbl_year1 with a successful join are those students that were not promoted, subject to any other filters or other business rules.</p>
+<p>As a proportion, the first year is the denominator and the number of successful joins in the second year is the numerator, but you could also flip the calculation and work backward, using year as the denominator and any successful joins against year - 1 as the numerator.</p>
 </section>
 
 </main>

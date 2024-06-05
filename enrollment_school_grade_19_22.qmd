@@ -462,3 +462,29 @@ I'll be happy to assist!
 --Steven
 
 ## Deliverable 4: Students in same grade
+
+This calculation is actually something that I've built at NOLA Public Schools,
+so the basic rules are very familiar. The pseudocode looks something like this:
+
+Let annual_enrollment_detail be a database table 
+  of year-student-school-grade tuples.
+Let years be an array of years from 2018 to 2021.
+
+For year in years:
+  
+  Let tbl_year1 = annual_enrollment_detail filtered for
+    audit_year == year (2018 for example).
+  Let tbl_year2 = annual_enrollment_detail filtered for
+    audit_year == year + 1 (2019 for example).
+  
+  Left join tbl_year2 back onto tbl_year1 using 
+    student_id, school_code, and grade_level.
+  (If you don't care whether they changed schools, use student and grade only.)
+  
+  The records in tbl_year1 with a successful join are those students that were
+  not promoted, subject to any other filters or business rules.
+  
+As a proportion, the first year is the denominator and the number of successful
+joins in the second year is the numerator, but you could also flip the 
+calculation and work backward, using year as the denominator and any successful
+joins against year - 1 as the numerator.
