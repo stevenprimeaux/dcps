@@ -4,6 +4,7 @@ format:
   html:
     code-fold: true
     code-summary: "Show code"
+    embed-resources: true
 toc: true
 execute:
   message: false
@@ -232,16 +233,10 @@ enrollment_clean |>
 Pivot enrollment count columns back out to wide format so each
 school-grade pair can be displayed with both years on a single row.
 
-In calculations for change over time, school-grades that either started from a
-zero baseline or dropped down to zero students will be excluded, as well as
-school-grades that did not have at least 10 students in both years. In these
-situations, the rate of change may not be meaningful because it will
+In calculations for change over time, school-grades that did not have at least 
+10 students in both years are excluded because the rate of change will
 often be infinite, bounded at negative 100 percent, or related to an alternative
 school arrangement.
-
-```{r}
-values_exclude <- c(-1.0, Inf)
-```
 
 Create rows for DCPS median by grade, which will provide the context needed to 
 answer the request. In other words, is the median across schools consistent with
@@ -262,7 +257,6 @@ enrollment_yoy <-
     school_name = if_else(school_code == "001", "Overall", school_name)
   ) |>
   filter(n_enrolled_2019 >= 10 & n_enrolled_2022 >= 10) |>
-  filter(!(rate_enrolled_change %in% values_exclude)) |>
   select(!c(lea_code, lea_name))
 
 dc_summary <-
